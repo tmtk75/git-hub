@@ -1,0 +1,268 @@
+###
+### git extension for github
+###
+#set -x
+set -e  ## simple exit from the point it called.
+gh_help() {
+  cat <<EOF
+usage: git hub [command] [args]
+
+  git extension for github to open page
+
+  blob      <path-pattern>[:index] [ref]
+  commits   [ref]
+  commit    <path-pattern>[:path-index][:ref-index]
+  history
+  compare   <to-ref> [base-ref]
+  diff
+  branches  
+  tags
+  graphs    [contributors|commit-activity|code-frequency|impact|punch-card]
+  network
+
+  ref can be hash string like "566b682d5b" or remote branch name.
+  
+  blob:                                          commits:
+    git hub blob README                            git hub commits master
+    git hub blob README:2                          git hub commit[s] 82a98bc
+    git hub blob RELEASENOTE release-20120615    
+    git hub blob LICENSE 566b68
+
+  commit:                                        history:
+    git hub commit git-hub                         alias of commit
+    git hub commit README:2:3
+    git hub commit pom.xml::3
+
+  compare:                                       diff:
+    git hub compare spike-branch                   alias of compare
+    git hub compare spike-branch big-change
+    git hub compare 8a98bc 82a98bc^
+
+  branches:                                      tags:
+    git hub branches                               git hub tags
+
+  graphs:                                        network:
+    git hub graphs                                 git hub network
+
+EOF
+  exit 1
+}
+
+#31:fatal
+#37:info
+#32:good
+
+gh_open_url() {
+  if [ ! -z "$opt_show_url" ]; then
+    echo "$1"
+  else
+    $open_cmd "$1"
+  fi
+}
+
+gh_project() {
+  git remote -v | egrep "$gh_hostname" | head -n1 \
+    | sed 's/^.*://;s/ .*$//;s/.git$//'
+  #exit ${PIPESTATUS[0]}
+  [ ${PIPESTATUS[1]} = 0 ] && exit 0
+  echo "$ERROR: $gh_hostname not found in the output 'git remote -v'" 1>&2
+  exit 1
+}
+
+gh_branch() {
+  branch=$1
+  if [ -z "$branch" ]; then branch=$default_branch; fi
+  if gh_is_hash $branch; then echo $branch; return 0; fi
+  if [ ${#branch} -lt 4 ]; then echo "$WARN: if \"$branch\" is hash, it's too short. more than 4 letters needed." 1>&2; fi
+  gh_is_in_remotes $branch
+  echo $branch
+}
+
+gh_is_1line() {
+  awk '{n+=1;print}END{exit n-1}'
+}
+
+gh_is_empty() {
+  if [ $1 = 255 ]; then
+    echo "$ERROR: $2 not found in the output 'git ls-files'" 1>&2
+    exit 1
+  fi
+}
+
+gh_matched_path() {
+  set -- `echo "$1" | sed 's/:/ /g'`
+  regex=$1
+  select=$2
+  git ls-files | egrep "$regex" | gh_is_1line | tee $tmpfile > /dev/null
+  stat=${PIPESTATUS[2]}
+  gh_is_empty $stat $regex
+  if [ "$stat" != 0 ]; then
+    if [ ! -z "$select" ]; then
+      cat $tmpfile | sed "$select!d"
+      exit 0
+    fi
+    echo "$INFO: more than two lines matched like" 1>&2
+    git ls-files | egrep "$regex" | cat -n 1>&2 #awk '{printf "  %d  %s\n", NR, $0}' 1>&2
+    
+    cat <<HERE 1>&2
+
+If you'd like to choose the line latter than 1st one without changing the pattern,
+please try specifying index to select like
+
+  git hub blob $regex:2
+
+HERE
+    exit 1
+  fi
+  cat $tmpfile | head -n1
+}
+
+gh_is_hash() {
+  if echo $1 | egrep "^[0-9a-fA-F]{4,}(\^+|~[0-9]+)?$" > /dev/null; then return 0; fi
+  return 1
+}
+
+gh_blob() {
+  if [ -z "$1" ]; then gh_help; fi
+  project=`gh_project $*`
+  path=`gh_matched_path $*`
+  branch=`gh_branch $2`
+  rest=$gh_endpoint$project/blob/$branch/$path
+  gh_open_url $rest
+}
+
+gh_history() {
+  gh_commit $*
+}
+
+gh_commit() {
+  pattern=$1
+  if [ -z "$pattern" ]; then gh_help; fi
+  path=`gh_matched_path "$1"`
+  set -- `echo "$1" | sed 's/::/ 1 /;s/:/ /g'`
+  pathidx=$2
+  refidx=$3
+  format="%h - %an  %cr - %s"
+  git log --pretty=format:"$format" --date=relative `git ls-files | egrep "$path"` | gh_is_1line | tee $tmpfile > /dev/null
+  #echo $pathidx
+  #echo $refidx
+  if [ -z "$refidx" ]; then
+    echo "$INFO: more than two lines matched like" 1>&2
+    echo 1>&2 Specify a ref with index like, git hub commit $pattern:3
+    cat -n $tmpfile 1>&2
+    exit 1
+  fi
+  ref=`cat $tmpfile | sed "$refidx!d" | awk '{print $1}'`
+  gh_commits $ref
+}
+
+gh_commits() {
+  project=`gh_project`
+  if [ -z "$1" ]; then
+    gh_open_url "$gh_endpoint$project/commits"
+  elif gh_is_hash $1; then
+    gh_open_url "$gh_endpoint$project/commit/$1"
+  else
+    gh_open_url "$gh_endpoint$project/commits/`gh_branch $1`"
+  fi
+}
+
+gh_graphs() {
+  project=`gh_project`
+  gh_open_url "$gh_endpoint$project/graphs"
+}
+
+gh_branches() {
+  project=`gh_project`
+  gh_open_url "$gh_endpoint$project/branches"
+}
+
+gh_tags() {
+  project=`gh_project`
+  gh_open_url "$gh_endpoint$project/tags"
+}
+
+gh_network() {
+  project=`gh_project`
+  gh_open_url "$gh_endpoint$project/network"
+}
+
+gh_strip_relative() {
+  echo $1 | sed 's/\^^*$//;s/~.*$//'
+}
+
+gh_is_in_remotes() {
+  ref=$1
+  _ref=`gh_strip_relative $ref`
+  if ! git branch -a | grep "remotes/.*/${_ref}$" > /dev/null; then
+    if ! gh_is_hash $ref; then
+      echo "$ERROR: No ref '$ref' is in remotes" 1>&2
+      exit 1
+    fi
+  fi
+}
+
+gh_diff() {
+  gh_compare $*
+}
+
+gh_compare() {
+  to=$1
+  base=$2
+  if [ -z "$to" ]; then gh_help; fi
+  gh_is_in_remotes $to
+  if [ ! -z "$base" ]; then
+    gh_is_in_remotes $base
+  else
+    base=`git branch | egrep '^\*' | sed 's/^\* //'`
+  fi
+  if [ "$to" = "$base" ]; then
+    echo "$ERROR: same ref '$ref...$ref'" 1>&2
+    exit 1
+  fi
+  project=`gh_project`
+  gh_open_url "$gh_endpoint$project/compare/$base...$to"
+}
+
+gh_init() {
+  ERROR="\033[0;31mERROR\033[0m"
+  WARN="\033[0;35mWARN\033[0m"
+  INFO="\033[1;37mINFO\033[0m"
+  if ! which git > /dev/null; then echo "$WARN: cannot run git"; exit 1; fi
+  gh_hostname=github.com
+  gh_protocol=https://
+  gh_delimiter=/
+  gh_endpoint=$gh_protocol$gh_hostname$gh_delimiter
+  default_branch=master
+  open_cmd=open
+}
+
+gh_parseopt() {
+  opts=`getopt "nh" $*`
+  if [ $? != 0 ]; then exit 1; fi
+  set -- $opts
+  for i; do
+    case $i in
+      -n) opt_show_url=1; shift;;
+      -h) opt_show_help=1; shift;;
+      --) shift;break;;
+    esac
+  done
+  echo $@
+}
+
+git_hub() {
+  if [ -z "$1" ]; then gh_help; fi
+  cmd=$1; shift
+  if [ ! -z "$opt_show_help" ]; then
+    gh_help_$cmd
+  else
+    gh_$cmd $*
+  fi
+}
+
+tmpfile=~/.git-hub.tmp
+gh_init
+gh_parseopt $* > $tmpfile
+git_hub `cat $tmpfile`
+set +x
