@@ -144,11 +144,13 @@ gh_commit() {
   refidx=$3
   format="%h - %an  %cr - %s"
   git log --pretty=format:"$format" --date=relative `git ls-files | egrep "$path"` | gh_is_1line | tee $tmpfile > /dev/null
-  #echo $pathidx
-  #echo $refidx
+  if [ ${PIPESTATUS[2]} = 0 ]; then
+    pathidx=:
+    refidx=1
+  fi
   if [ -z "$refidx" ]; then
     echo "$INFO: more than two lines matched like" 1>&2
-    echo 1>&2 Specify a ref with index like, git hub commit $pattern:3
+    echo 1>&2 Specify a ref with index like, git hub commit $pattern$pathidx:2
     cat -n $tmpfile 1>&2
     exit 1
   fi
