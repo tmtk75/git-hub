@@ -62,8 +62,7 @@ gh_open_url() {
 
 gh_project() {
   git remote -v | egrep "$gh_hostname" | head -n1 \
-    | sed 's/^.*://;s/ .*$//;s/.git$//'
-  #exit ${PIPESTATUS[0]}
+    | sed 's/^.*github.com[:/]//;s/ .*$//;s/.git$//'
   [ ${PIPESTATUS[1]} = 0 ] && exit 0
   echo "$ERROR: $gh_hostname not found in the output 'git remote -v'" 1>&2
   exit 1
