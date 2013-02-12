@@ -72,7 +72,10 @@ gh_branch() {
   branch=$1
   if [ -z "$branch" ]; then branch=$default_branch; fi
   if gh_is_hash $branch; then echo $branch; return 0; fi
-  if [ ${#branch} -lt 4 ]; then echo "$WARN: if \"$branch\" is hash, it's too short. more than 4 letters needed." 1>&2; fi
+  if [ ${#branch} -lt 4 ]; then
+    printf "$WARN" 1>&2
+    echo ": if \"$branch\" is hash, it's too short. more than 4 letters needed." 1>&2
+  fi
   gh_is_in_remotes $branch
   echo $branch
 }
@@ -100,7 +103,8 @@ gh_matched_path() {
       cat $tmpfile | sed "$select!d"
       exit 0
     fi
-    echo "$INFO: more than two lines matched like" 1>&2
+    printf "$INFO" 1>&2
+    echo ": more than two lines matched like" 1>&2
     git ls-files | egrep "$regex" | cat -n 1>&2 #awk '{printf "  %d  %s\n", NR, $0}' 1>&2
     
     cat <<HERE 1>&2
@@ -148,7 +152,8 @@ gh_commit() {
     refidx=1
   fi
   if [ -z "$refidx" ]; then
-    echo "$INFO: more than two lines matched like" 1>&2
+    printf "$INFO" 1>&2
+    echo ": more alsjdf than two lines matched like" 1>&2
     echo 1>&2 Specify a ref with index like, git hub commit $pattern$pathidx:2
     cat -n $tmpfile 1>&2
     exit 1
