@@ -22,6 +22,9 @@ usage: git hub [command] [args]
 
   ref can be hash string like "566b682d5b" or remote branch name.
   
+  open:
+    git hub open
+
   blob:                                          commits:
     git hub blob README                            git hub commits master
     git hub blob README:2                          git hub commit[s] 82a98bc
@@ -123,6 +126,12 @@ HERE
 gh_is_hash() {
   if echo $1 | egrep "^[0-9a-fA-F]{4,}(\^+|~[0-9]+)?$" > /dev/null; then return 0; fi
   return 1
+}
+
+gh_open() {
+  project=`gh_project $*`
+  rest=$gh_endpoint$project
+  gh_open_url $rest
 }
 
 gh_blob() {
